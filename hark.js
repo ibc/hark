@@ -30,6 +30,7 @@ module.exports = function(stream, options) {
   //Config
   var options = options || {},
       smoothing = (options.smoothing || 0.1),
+      speakingInterval = (options.speakingInterval || 50),
       threshold = options.threshold,
       play = options.play,
       history = options.history || 10,
@@ -67,6 +68,10 @@ module.exports = function(stream, options) {
     threshold = t;
   };
 
+  harker.setInterval = function(i) {
+    speakingInterval = i;
+  };
+
   harker.stop = function() {
     cancelAnimationFrame(timer);
     harker.emit('volume_change', -100, threshold);
@@ -82,32 +87,42 @@ module.exports = function(stream, options) {
       harker.speakingHistory.push(0);
   }
 
+  var vuInterval = 100;
+  var vuBefore = Date.now();
+  var speakingBefore = Date.now();
+
   function checkVolume() {
+    var now = Date.now();
     var currentVolume = getMaxVolume(analyser, fftBins);
 
-    harker.emit('volume_change', currentVolume, threshold);
-
-    var history = 0;
-    if (currentVolume > threshold && !harker.speaking) {
-      // trigger quickly, short history
-      for (var i = harker.speakingHistory.length - 3; i < harker.speakingHistory.length; i++) {
-        history += harker.speakingHistory[i];
-      }
-      if (history >= 2) {
-        harker.speaking = true;
-        harker.emit('speaking');
-      }
-    } else if (currentVolume < threshold && harker.speaking) {
-      for (var i = 0; i < harker.speakingHistory.length; i++) {
-        history += harker.speakingHistory[i];
-      }
-      if (history == 0) {
-        harker.speaking = false;
-        harker.emit('stopped_speaking');
-      }
+    if (now - vuBefore >= vuInterval) {
+      vuBefore = Date.now();
+      harker.emit('volume_change', currentVolume, threshold);
     }
-    harker.speakingHistory.shift();
-    harker.speakingHistory.push(0 + (currentVolume > threshold));
+
+    if (now - speakingBefore >= speakingInterval) {
+      var history = 0;
+      if (currentVolume > threshold && !harker.speaking) {
+        // trigger quickly, short history
+        for (var i = harker.speakingHistory.length - 3; i < harker.speakingHistory.length; i++) {
+          history += harker.speakingHistory[i];
+        }
+        if (history >= 2) {
+          harker.speaking = true;
+          harker.emit('speaking');
+        }
+      } else if (currentVolume < threshold && harker.speaking) {
+        for (var i = 0; i < harker.speakingHistory.length; i++) {
+          history += harker.speakingHistory[i];
+        }
+        if (history == 0) {
+          harker.speaking = false;
+          harker.emit('stopped_speaking');
+        }
+      }
+      harker.speakingHistory.shift();
+      harker.speakingHistory.push(0 + (currentVolume > threshold));
+    }
 
     timer = requestAnimationFrame(checkVolume);
   }
